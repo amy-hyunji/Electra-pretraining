@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2020 The Google Research Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,301 +13,333 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pre-trains an ELECTRA model."""
+"""Tokenization classes, the same as used for BERT."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import argparse
 import collections
-import json
-
+import unicodedata
+import six
 import tensorflow.compat.v1 as tf
 
-import configure_pretraining
-from model import modeling
-from model import optimization
-from pretrain import pretrain_data
-from pretrain import pretrain_helpers
-from util import training_utils
-from util import utils
-from util import gen
-import sys
-
-class PretrainingModel(object):
-  """Transformer pre-training using the replaced-token-detection task."""
-
-  def __init__(self, config: configure_wordnet_pretraining.PretrainingConfig,
-               features, is_training):
-    # Set up model config
-    self._config = config
-    self._bert_config = training_utils.get_bert_config(config)
-	
-    inputs = pretrain_data.features_to_inputs(features)
-    embedding_size = (
-			self._bert_config.hidden_size if config.embedding_size is None else config.embedding_size)
-    fake_data = self._get_fake_data(inputs)
-
-    # Discriminator
-    disc_output = None
-    if config.electra_objective:
-      discriminator = self._build_transformer(
-          fake_data.inputs, is_training, reuse=False,
-          embedding_size=embedding_size)
-      disc_output = self._get_discriminator_output(
-          fake_data.inputs, discriminator, fake_data.is_fake_tokens)
-      self.total_loss = disc_output.loss
-
-    # Evaluation
-    eval_fn_inputs = {
-        "input_ids": inputs.input_ids,
-        "masked_lm_ids": inputs.masked_lm_ids,
-        "masked_lm_weights": inputs.masked_lm_weights,
-        "input_mask":inputs.label 
-    }
-    if config.electra_objective:
-      eval_fn_inputs.update({
-          "disc_loss": disc_output.per_example_loss,
-          "disc_labels": disc_output.labels,
-          "disc_probs": disc_output.probs,
-          "disc_preds": disc_output.preds,
-      })
-    eval_fn_keys = eval_fn_inputs.keys()
-    eval_fn_values = [eval_fn_inputs[k] for k in eval_fn_keys]
-
-    def metric_fn(*args):
-      """Computes the loss and accuracy of the model."""
-      d = {k: arg for k, arg in zip(eval_fn_keys, args)}
-      metrics = dict()
-      metrics["masked_lm_accuracy"] = tf.metrics.accuracy(
-          labels=tf.reshape(d["masked_lm_ids"], [-1]),
-          predictions=tf.reshape(d["masked_lm_preds"], [-1]),
-          weights=tf.reshape(d["masked_lm_weights"], [-1]))
-      metrics["masked_lm_loss"] = tf.metrics.mean(
-          values=tf.reshape(d["mlm_loss"], [-1]),
-          weights=tf.reshape(d["masked_lm_weights"], [-1]))
-      if config.electra_objective:
-        metrics["sampled_masked_lm_accuracy"] = tf.metrics.accuracy(
-            labels=tf.reshape(d["masked_lm_ids"], [-1]),
-            predictions=tf.reshape(d["sampled_tokids"], [-1]),
-            weights=tf.reshape(d["masked_lm_weights"], [-1]))
-        if config.disc_weight > 0:
-          metrics["disc_loss"] = tf.metrics.mean(d["disc_loss"])
-          metrics["disc_auc"] = tf.metrics.auc(
-              d["disc_labels"] * d["input_mask"],
-              d["disc_probs"] * tf.cast(d["input_mask"], tf.float32))
-          metrics["disc_accuracy"] = tf.metrics.accuracy(
-              labels=d["disc_labels"], predictions=d["disc_preds"],
-              weights=d["input_mask"])
-          metrics["disc_precision"] = tf.metrics.accuracy(
-              labels=d["disc_labels"], predictions=d["disc_preds"],
-              weights=d["disc_preds"] * d["input_mask"])
-          metrics["disc_recall"] = tf.metrics.accuracy(
-              labels=d["disc_labels"], predictions=d["disc_preds"],
-              weights=d["disc_labels"] * d["input_mask"])
-      return metrics
-    self.eval_metrics = (metric_fn, eval_fn_values)
-
-  def _get_discriminator_output(self, inputs, discriminator, labels):
-    """Discriminator binary classifier."""
-    with tf.variable_scope("discriminator_predictions"):
-      hidden = tf.layers.dense(
-          discriminator.get_sequence_output(),
-          units=self._bert_config.hidden_size,
-          activation=modeling.get_activation(self._bert_config.hidden_act),
-          kernel_initializer=modeling.create_initializer(
-              self._bert_config.initializer_range))
-      logits = tf.squeeze(tf.layers.dense(hidden, units=1), -1)
-      weights = tf.cast(inputs.input_mask, tf.float32)
-      labelsf = tf.cast(labels, tf.float32)
-      losses = tf.nn.sigmoid_cross_entropy_with_logits(
-          logits=logits, labels=labelsf) * weights
-      per_example_loss = (tf.reduce_sum(losses, axis=-1) /
-                          (1e-6 + tf.reduce_sum(weights, axis=-1)))
-      loss = tf.reduce_sum(losses) / (1e-6 + tf.reduce_sum(weights))
-      probs = tf.nn.sigmoid(logits)
-      preds = tf.cast(tf.round((tf.sign(logits) + 1) / 2), tf.int32)
-      DiscOutput = collections.namedtuple(
-          "DiscOutput", ["loss", "per_example_loss", "probs", "preds",
-                         "labels"])
-      return DiscOutput(
-          loss=loss, per_example_loss=per_example_loss, probs=probs,
-          preds=preds, labels=labels,
-      )
-
-  def _get_fake_data(self, inputs):
-    """Sample from the generator to create corrupted input."""
-    
-    fake_data = inputs
-    labels = inputs.label 
-    FakedData = collections.namedtuple("FakedData", [
-        "inputs", "is_fake_tokens"])
-    return FakedData(inputs=fake_data, is_fake_tokens=labels)
-
-  def _build_transformer(self, inputs: wordnet_pretrain_data.Inputs, is_training,
-                         bert_config=None, name="electra", reuse=False, **kwargs):
-    """Build a transformer encoder network."""
-    if bert_config is None:
-      bert_config = self._bert_config
-    with tf.variable_scope(tf.get_variable_scope(), reuse=reuse):
-      return modeling.BertModel(
-          bert_config=bert_config,
-          is_training=is_training,
-          input_ids=inputs.input_ids,
-          input_mask=inputs.input_mask,
-          token_type_ids=inputs.segment_ids,
-          use_one_hot_embeddings=self._config.use_tpu,
-          scope=name,
-          **kwargs)
 
 
-def get_generator_config(config: configure_wordnet_pretraining.PretrainingConfig,
-                         bert_config: modeling.BertConfig):
-  """Get model config for the generator network."""
-  gen_config = modeling.BertConfig.from_dict(bert_config.to_dict())
-  gen_config.hidden_size = int(round(
-      bert_config.hidden_size * config.generator_hidden_size))
-  gen_config.num_hidden_layers = int(round(
-      bert_config.num_hidden_layers * config.generator_layers))
-  gen_config.intermediate_size = 4 * gen_config.hidden_size
-  gen_config.num_attention_heads = max(1, gen_config.hidden_size // 64)
-  return gen_config
-
-
-def model_fn_builder(config: configure_wordnet_pretraining.PretrainingConfig):
-  """Build the model for training."""
-
-  def model_fn(features, labels, mode, params):
-
-    """Build the model for training."""
-    model = PretrainingModel(config, features, 
-                             mode == tf.estimator.ModeKeys.TRAIN)
-    utils.log("Model is built!")
-    if mode == tf.estimator.ModeKeys.TRAIN:
-      train_op = optimization.create_optimizer(
-          model.total_loss, config.learning_rate, config.num_train_steps,
-          weight_decay_rate=config.weight_decay_rate,
-          use_tpu=config.use_tpu,
-          warmup_steps=config.num_warmup_steps,
-          lr_decay_power=config.lr_decay_power
-      )
-      output_spec = tf.estimator.tpu.TPUEstimatorSpec(
-          mode=mode,
-          loss=model.total_loss,
-          train_op=train_op,
-          training_hooks=[training_utils.ETAHook(
-              {} if config.use_tpu else dict(loss=model.total_loss),
-              config.num_train_steps, config.iterations_per_loop,
-              config.use_tpu)]
-      )
-    elif mode == tf.estimator.ModeKeys.EVAL:
-      output_spec = tf.estimator.tpu.TPUEstimatorSpec(
-          mode=mode,
-          loss=model.total_loss,
-          eval_metrics=model.eval_metrics,
-          evaluation_hooks=[training_utils.ETAHook(
-              {} if config.use_tpu else dict(loss=model.total_loss),
-              config.num_eval_steps, config.iterations_per_loop,
-              config.use_tpu, is_training=False)])
+def convert_to_unicode(text):
+  """Converts `text` to Unicode (if it's not already), assuming utf-8 input."""
+  if six.PY3:
+    if isinstance(text, str):
+      return text
+    elif isinstance(text, bytes):
+      return text.decode("utf-8", "ignore")
     else:
-      raise ValueError("Only TRAIN and EVAL modes are supported")
-    return output_spec
-
-  return model_fn
-
-def train_or_eval(config: configure_wordnet_pretraining.PretrainingConfig, _random):
-  """Run pre-training or evaluate the pre-trained model."""
-  if config.do_train == config.do_eval:
-    raise ValueError("Exactly one of `do_train` or `do_eval` must be True.")
-  if config.debug and config.do_train:
-    utils.rmkdir(config.model_dir)
-  utils.heading("Config:")
-  utils.log_config(config)
-
-  is_per_host = tf.estimator.tpu.InputPipelineConfig.PER_HOST_V2
-  tpu_cluster_resolver = None
-  if config.use_tpu and config.tpu_name:
-    tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(
-        config.tpu_name, zone=config.tpu_zone, project=config.gcp_project)
-  tpu_config = tf.estimator.tpu.TPUConfig(
-      iterations_per_loop=config.iterations_per_loop,
-      num_shards=config.num_tpu_cores,
-      tpu_job_name=config.tpu_job_name,
-      per_host_input_for_training=is_per_host)
-  run_config = tf.estimator.tpu.RunConfig(
-      cluster=tpu_cluster_resolver,
-      model_dir=config.model_dir,
-      save_checkpoints_steps=config.save_checkpoints_steps,
-      tpu_config=tpu_config)
-  model_fn = model_fn_builder(config=config)
-  estimator = tf.estimator.tpu.TPUEstimator(
-      use_tpu=config.use_tpu,
-      model_fn=model_fn,
-      config=run_config,
-      train_batch_size=config.train_batch_size,
-      eval_batch_size=config.eval_batch_size)
-
-  if config.do_train:
-    utils.heading("Running training")
-    if _random:
-	    print("import random")
-	    estimator.train(
-			 input_fn=wordnet_pretrain_data.get_input_fn(config, True, filename='random'),
-                    max_steps=config.num_train_steps)
+      raise ValueError("Unsupported string type: %s" % (type(text)))
+  elif six.PY2:
+    if isinstance(text, str):
+      return text.decode("utf-8", "ignore")
+    elif isinstance(text, unicode):
+      return text
     else:
-	    print("import wordnet")
-	    estimator.train(
-			 input_fn=wordnet_pretrain_data.get_input_fn(config, True, filename='wordnet'),
-                    max_steps=config.num_train_steps)
-
-
-  if config.do_eval:
-    utils.heading("Running evaluation")
-    if _random:
-      result = estimator.evaluate(
-        input_fn=wordnet_pretrain_data.get_input_fn(config, False, filename='random'),
-        steps=config.num_eval_steps)
-    else:
-      result = estimator.evaluate(
-        input_fn=wordnet_pretrain_data.get_input_fn(config, False, filename='wordnet'),
-        steps=config.num_eval_steps)
-    for key in sorted(result.keys()):
-      utils.log("  {:} = {:}".format(key, str(result[key])))
-    return result
-
-
-def train_one_step(config: configure_wordnet_pretraining.PretrainingConfig):
-  """Builds an ELECTRA model an trains it for one step; useful for debugging."""
-  train_input_fn = wordnet_pretrain_data.get_input_fn(config, True, filename="wordnet")
-  features = tf.data.make_one_shot_iterator(train_input_fn(dict(
-      batch_size=config.train_batch_size))).get_next()
- 
-  model = PretrainingModel(config, features, True)
-  with tf.Session() as sess:
-    sess.run(tf.global_variables_initializer())
-    utils.log(sess.run(model.total_loss))
-
-
-def main():
-  parser = argparse.ArgumentParser(description=__doc__)
-  parser.add_argument("--data-dir", required=True,
-                      help="Location of data files (model weights, etc).")
-  parser.add_argument("--model-name", required=True,
-                      help="The name of the model being fine-tuned.")
-  parser.add_argument("--hparams", default="{}",
-                      help="JSON dict of model hyperparameters.")
-  parser.add_argument("--random", action="store_true")
-  args = parser.parse_args()
-  if args.hparams.endswith(".json"):
-    hparams = utils.load_json(args.hparams)
+      raise ValueError("Unsupported string type: %s" % (type(text)))
   else:
-    hparams = json.loads(args.hparams)
-  tf.logging.set_verbosity(tf.logging.ERROR)
-  train_or_eval(configure_wordnet_pretraining.PretrainingConfig(
-      args.model_name, args.data_dir, **hparams), args.random)
-#  train_one_step(configure_wordnet_pretraining.PretrainingConfig(
-#			  args.model_name, args.data_dir, **hparams))
+    raise ValueError("Not running on Python2 or Python 3?")
 
-if __name__ == "__main__":
-  main()
+
+def printable_text(text):
+  """Returns text encoded in a way suitable for print or `tf.logging`."""
+
+  # These functions want `str` for both Python2 and Python3, but in one case
+  # it's a Unicode string and in the other it's a byte string.
+  if six.PY3:
+    if isinstance(text, str):
+      return text
+    elif isinstance(text, bytes):
+      return text.decode("utf-8", "ignore")
+    else:
+      raise ValueError("Unsupported string type: %s" % (type(text)))
+  elif six.PY2:
+    if isinstance(text, str):
+      return text
+    elif isinstance(text, unicode):
+      return text.encode("utf-8")
+    else:
+      raise ValueError("Unsupported string type: %s" % (type(text)))
+  else:
+    raise ValueError("Not running on Python2 or Python 3?")
+
+
+def load_vocab(vocab_file):
+  """Loads a vocabulary file into a dictionary."""
+  vocab = collections.OrderedDict()
+  index = 0
+  with tf.io.gfile.GFile(vocab_file, "r") as reader:
+    while True:
+      token = convert_to_unicode(reader.readline())
+      if not token:
+        break
+      token = token.strip()
+      vocab[token] = index
+      index += 1
+  return vocab
+
+
+def convert_by_vocab(vocab, items):
+  """Converts a sequence of [tokens|ids] using the vocab."""
+  output = []
+  for item in items:
+    output.append(vocab[item])
+  return output
+
+
+def convert_tokens_to_ids(vocab, tokens):
+  return convert_by_vocab(vocab, tokens)
+
+
+def convert_ids_to_tokens(inv_vocab, ids):
+  return convert_by_vocab(inv_vocab, ids)
+
+
+def whitespace_tokenize(text):
+  """Runs basic whitespace cleaning and splitting on a piece of text."""
+  text = text.strip()
+  if not text:
+    return []
+  tokens = text.split()
+  return tokens
+
+
+class FullTokenizer(object):
+  """Runs end-to-end tokenziation."""
+
+  def __init__(self, vocab_file, do_lower_case=True):
+    self.vocab = load_vocab(vocab_file)
+    self.inv_vocab = {v: k for k, v in self.vocab.items()}
+    self.basic_tokenizer = BasicTokenizer(do_lower_case=do_lower_case)
+    self.wordpiece_tokenizer = WordpieceTokenizer(vocab=self.vocab)
+
+  def tokenize(self, text):
+    split_tokens = []
+    for token in self.basic_tokenizer.tokenize(text):
+      for sub_token in self.wordpiece_tokenizer.tokenize(token):
+        split_tokens.append(sub_token)
+
+    return split_tokens
+
+  def convert_tokens_to_ids(self, tokens):
+    return convert_by_vocab(self.vocab, tokens)
+
+  def convert_ids_to_tokens(self, ids):
+    return convert_by_vocab(self.inv_vocab, ids)
+
+
+class BasicTokenizer(object):
+  """Runs basic tokenization (punctuation splitting, lower casing, etc.)."""
+
+  def __init__(self, do_lower_case=True):
+    """Constructs a BasicTokenizer.
+    Args:
+      do_lower_case: Whether to lower case the input.
+    """
+    self.do_lower_case = do_lower_case
+
+  def tokenize(self, text):
+    """Tokenizes a piece of text."""
+    text = convert_to_unicode(text)
+    text = self._clean_text(text)
+
+    # This was added on November 1st, 2018 for the multilingual and Chinese
+    # models. This is also applied to the English models now, but it doesn't
+    # matter since the English models were not trained on any Chinese data
+    # and generally don't have any Chinese data in them (there are Chinese
+    # characters in the vocabulary because Wikipedia does have some Chinese
+    # words in the English Wikipedia.).
+    text = self._tokenize_chinese_chars(text)
+
+    orig_tokens = whitespace_tokenize(text)
+    split_tokens = []
+    for token in orig_tokens:
+      if self.do_lower_case:
+        token = token.lower()
+        token = self._run_strip_accents(token)
+      split_tokens.extend(self._run_split_on_punc(token))
+
+    output_tokens = whitespace_tokenize(" ".join(split_tokens))
+    return output_tokens
+
+  def _run_strip_accents(self, text):
+    """Strips accents from a piece of text."""
+    text = unicodedata.normalize("NFD", text)
+    output = []
+    for char in text:
+      cat = unicodedata.category(char)
+      if cat == "Mn":
+        continue
+      output.append(char)
+    return "".join(output)
+
+  def _run_split_on_punc(self, text):
+    """Splits punctuation on a piece of text."""
+    chars = list(text)
+    i = 0
+    start_new_word = True
+    output = []
+    while i < len(chars):
+      char = chars[i]
+      if _is_punctuation(char):
+        output.append([char])
+        start_new_word = True
+      else:
+        if start_new_word:
+          output.append([])
+        start_new_word = False
+        output[-1].append(char)
+      i += 1
+
+    return ["".join(x) for x in output]
+
+  def _tokenize_chinese_chars(self, text):
+    """Adds whitespace around any CJK character."""
+    output = []
+    for char in text:
+      cp = ord(char)
+      if self._is_chinese_char(cp):
+        output.append(" ")
+        output.append(char)
+        output.append(" ")
+      else:
+        output.append(char)
+    return "".join(output)
+
+  def _is_chinese_char(self, cp):
+    """Checks whether CP is the codepoint of a CJK character."""
+    # This defines a "chinese character" as anything in the CJK Unicode block:
+    #   https://en.wikipedia.org/wiki/CJK_Unified_Ideographs_(Unicode_block)
+    #
+    # Note that the CJK Unicode block is NOT all Japanese and Korean characters,
+    # despite its name. The modern Korean Hangul alphabet is a different block,
+    # as is Japanese Hiragana and Katakana. Those alphabets are used to write
+    # space-separated words, so they are not treated specially and handled
+    # like the all of the other languages.
+    if ((cp >= 0x4E00 and cp <= 0x9FFF) or  #
+        (cp >= 0x3400 and cp <= 0x4DBF) or  #
+        (cp >= 0x20000 and cp <= 0x2A6DF) or  #
+        (cp >= 0x2A700 and cp <= 0x2B73F) or  #
+        (cp >= 0x2B740 and cp <= 0x2B81F) or  #
+        (cp >= 0x2B820 and cp <= 0x2CEAF) or
+        (cp >= 0xF900 and cp <= 0xFAFF) or  #
+        (cp >= 0x2F800 and cp <= 0x2FA1F)):  #
+      return True
+
+    return False
+
+  def _clean_text(self, text):
+    """Performs invalid character removal and whitespace cleanup on text."""
+    output = []
+    for char in text:
+      cp = ord(char)
+      if cp == 0 or cp == 0xfffd or _is_control(char):
+        continue
+      if _is_whitespace(char):
+        output.append(" ")
+      else:
+        output.append(char)
+    return "".join(output)
+
+
+class WordpieceTokenizer(object):
+  """Runs WordPiece tokenziation."""
+
+  def __init__(self, vocab, unk_token="[UNK]", max_input_chars_per_word=200):
+    self.vocab = vocab
+    self.unk_token = unk_token
+    self.max_input_chars_per_word = max_input_chars_per_word
+
+  def tokenize(self, text):
+    """Tokenizes a piece of text into its word pieces.
+    This uses a greedy longest-match-first algorithm to perform tokenization
+    using the given vocabulary.
+    For example:
+      input = "unaffable"
+      output = ["un", "##aff", "##able"]
+    Args:
+      text: A single token or whitespace separated tokens. This should have
+        already been passed through `BasicTokenizer.
+    Returns:
+      A list of wordpiece tokens.
+    """
+
+    text = convert_to_unicode(text)
+
+    output_tokens = []
+    for token in whitespace_tokenize(text):
+      chars = list(token)
+      if len(chars) > self.max_input_chars_per_word:
+        output_tokens.append(self.unk_token)
+        continue
+
+      is_bad = False
+      start = 0
+      sub_tokens = []
+      while start < len(chars):
+        end = len(chars)
+        cur_substr = None
+        while start < end:
+          substr = "".join(chars[start:end])
+          if start > 0:
+            substr = "##" + substr
+          if substr in self.vocab:
+            cur_substr = substr
+            break
+          end -= 1
+        if cur_substr is None:
+          is_bad = True
+          break
+        sub_tokens.append(cur_substr)
+        start = end
+
+      if is_bad:
+        output_tokens.append(self.unk_token)
+      else:
+        output_tokens.extend(sub_tokens)
+    return output_tokens
+
+
+def _is_whitespace(char):
+  """Checks whether `chars` is a whitespace character."""
+  # \t, \n, and \r are technically contorl characters but we treat them
+  # as whitespace since they are generally considered as such.
+  if char == " " or char == "\t" or char == "\n" or char == "\r":
+    return True
+  cat = unicodedata.category(char)
+  if cat == "Zs":
+    return True
+  return False
+
+
+def _is_control(char):
+  """Checks whether `chars` is a control character."""
+  # These are technically control characters but we count them as whitespace
+  # characters.
+  if char == "\t" or char == "\n" or char == "\r":
+    return False
+  cat = unicodedata.category(char)
+  if cat.startswith("C"):
+    return True
+  return False
+
+
+def _is_punctuation(char):
+  """Checks whether `chars` is a punctuation character."""
+  cp = ord(char)
+  # We treat all non-letter/number ASCII as punctuation.
+  # Characters such as "^", "$", and "`" are not in the Unicode
+  # Punctuation class but we treat them as punctuation anyways, for
+  # consistency.
+  if ((cp >= 33 and cp <= 47) or (cp >= 58 and cp <= 64) or
+      (cp >= 91 and cp <= 96) or (cp >= 123 and cp <= 126)):
+    return True
+  cat = unicodedata.category(char)
+  if cat.startswith("P"):
+    return True
+  return False

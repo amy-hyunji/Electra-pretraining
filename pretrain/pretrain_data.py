@@ -111,9 +111,8 @@ def features_to_inputs(features):
   return Inputs(
       input_ids=features["input_ids"],
       input_mask=features["input_mask"],
-      segment_ids=features["segment_ids"],
       label = features["label"],
-		masked_lm_positions=(features["masked_lm_positions"]
+      masked_lm_positions=(features["masked_lm_positions"]
                            if "masked_lm_positions" in features else None),
       masked_lm_ids=(features["masked_lm_ids"]
                      if "masked_lm_ids" in features else None),

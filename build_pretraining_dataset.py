@@ -116,7 +116,10 @@ class ExampleBuilder(object):
     input_mask += [0] * (self._max_length - len(input_mask))
 
     # add 0 to first and last part of self._label do to [CLS] and [SEP] token
-    label = 
+    label = self._label.copy()
+    label.append(0)
+    label.insert(0, 0)
+    label += [0] * (self._max_length - len(label))
     
     tf_example = tf.train.Example(features=tf.train.Features(feature={
         "input_ids": create_int_feature(input_ids),

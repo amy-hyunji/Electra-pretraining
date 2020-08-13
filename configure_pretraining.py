@@ -92,9 +92,9 @@ class PretrainingConfig(object):
 
     # default locations of data files
     self.wordnet_tfrecords= os.path.join(
-			 data_dir, "wordnet_tfrecords/pretrain_data.tfrecord*")
+			 data_dir, "wordnet*_tfrecords/pretrain_data.tfrecord*")
     self.random_tfrecords = os.path.join(
-			 data_dir, "random_tfrecords/pretrain_data.tfrecord*")
+			 data_dir, "random*_tfrecords/pretrain_data.tfrecord*")
     self.pretrain_tfrecords = os.path.join(
         data_dir, "pretrain_tfrecords/pretrain_data.tfrecord*")
     self.vocab_file = os.path.join(data_dir, "vocab.txt")
