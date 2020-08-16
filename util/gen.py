@@ -65,8 +65,8 @@ def make_synDict(tokenList, tagDict, lemmaDict, debug=False, thres=-1):
 			tempList = []
 			for elem in synList:
 				name, pos = get_name_pos_from_syn(elem)
-				if (name == lem):
-					tempList.append(elem)
+#				if (name == lem):
+				tempList.append(elem)
 
 			"""
 			only choose synset with SAME pos_tag 
@@ -168,10 +168,8 @@ def make_hypernymDict(synDict, tokenList, tagDict, lemmaDict, debug=False, thres
 	return hypernymDict
 
 def replace_all(sen, ori_word, ori_hyper):
-	print("[Original Sentence] {}".format(sen))
 	for elem in ori_hyper:
 		_name, _pos = get_name_pos_from_syn(elem)
-		print("[Replace Sentence] {}".format(change_word(sen, ori_word, _name)))
 
 def leave_only_char(word):
 	word = word.lower()
@@ -253,7 +251,6 @@ def replace_sentence (sen, num, total_tokens, _random):
 				hypernymDict[word] = _hypernymDict[word].copy()
 
 		_key = list(hypernymDict.keys())
-		print("hypernymDict: {}".format(hypernymDict))
 
 		if (len(_key) == 0):
 			return sen
@@ -278,4 +275,3 @@ if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--sen", required=True, default="I am planning to do this today")
 	args = parser.parse_args()
-	print(replace_sentence(args.sen, 3, [], False))
