@@ -49,15 +49,18 @@ def write_examples(job_id, args):
 	start_time = time.time()
 	log("Start time: {}".format(start_time))
 	for file_no, fname in enumerate(fnames):
-		if file_no > 0 and file_no % 10 == 0:
+		if (file_no > 0 and file_no % 10 == 0):
 			elapsed = time.time() - start_time
 			log("processed {:}/{:} files ({:.1f}%), ELAPSED: {:}s, ETA: {:}s, {:} examples written".format(file_no, len(fnames), 100.0*file_no/len(fnames), int(elapsed), int((len(fnames) - file_no) / (file_no / elapsed)), example_writer.n_written))
+		else:
+			print("{}/{}".format(file_no, len(fnames)))
 		utils.rmkdir(job_tmp_dir)
 		with tarfile.open(os.path.join(owt_dir, fname)) as f:
 			f.extractall(job_tmp_dir)
 		extracted_files = tf.io.gfile.listdir(job_tmp_dir)
 		random.shuffle(extracted_files)
-		for txt_fnames in extracted_files:
+		for i, txt_fnames in enumerate(extracted_files):
+#print("iter over {}/{}".format(i, len(extracted_files)))
 			example_writer.write_examples(os.path.join(job_tmp_dir, txt_fnames), total_tokens)
 	example_writer.finish()
 	log("Done!")

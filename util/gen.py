@@ -190,7 +190,7 @@ def change_word(sen, ori_word, replace_word):
 			for elem in wordList:
 				retVal += (elem+" ")
 			return retVal
-	return sen.replace(ori_word, replace_word, 1)
+	return sen
 
 def replace_one(sen, ori_word, ori_hyper):
 	if len(ori_hyper) == 0:
@@ -256,7 +256,7 @@ def replace_sentence (sen, num, total_tokens, _random):
 			return sen
 
 		if (len(_key) <= num):
-			num = len(_key)-2
+			num = max(len(_key)-2, 1)
 		
 		sampleNum = [] 
 		while len(sampleNum) != num:
