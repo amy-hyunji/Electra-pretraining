@@ -103,7 +103,7 @@ class ExampleBuilder(object):
 
     # trim to max_length while accounting for not-yet-added [CLS]/[SEP] tokens
     first_segment = first_segment[:self._max_length - 2] 
-    label = label[:self._max_length-2]
+    first_label = first_label[:self._max_length-2]
 
     # prepare to start building the next example
     self._current_sentences = []
