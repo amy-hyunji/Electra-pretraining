@@ -104,7 +104,7 @@ def _decode_record(record, name_to_features):
 # features as a dict
 Inputs = collections.namedtuple(
     "Inputs", ["input_ids", "input_mask", "label",
-               "masked_lm_ids", "masked_lm_weights"])
+               "masked_lm_positions", "masked_lm_ids", "masked_lm_weights"])
 
 
 def features_to_inputs(features):

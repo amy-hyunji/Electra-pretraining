@@ -37,7 +37,7 @@ import sys
 class PretrainingModel(object):
   """Transformer pre-training using the replaced-token-detection task."""
 
-  def __init__(self, config: configure_wordnet_pretraining.PretrainingConfig,
+  def __init__(self, config: configure_pretraining.PretrainingConfig,
                features, is_training):
     # Set up model config
     self._config = config
@@ -144,7 +144,7 @@ class PretrainingModel(object):
         "inputs", "is_fake_tokens"])
     return FakedData(inputs=fake_data, is_fake_tokens=labels)
 
-  def _build_transformer(self, inputs: wordnet_pretrain_data.Inputs, is_training,
+  def _build_transformer(self, inputs: pretrain_data.Inputs, is_training,
                          bert_config=None, name="electra", reuse=False, **kwargs):
     """Build a transformer encoder network."""
     if bert_config is None:
@@ -155,13 +155,13 @@ class PretrainingModel(object):
           is_training=is_training,
           input_ids=inputs.input_ids,
           input_mask=inputs.input_mask,
-          token_type_ids=inputs.segment_ids,
+          token_type_ids=None,#inputs.segment_ids,
           use_one_hot_embeddings=self._config.use_tpu,
           scope=name,
           **kwargs)
 
 
-def get_generator_config(config: configure_wordnet_pretraining.PretrainingConfig,
+def get_generator_config(config: configure_pretraining.PretrainingConfig,
                          bert_config: modeling.BertConfig):
   """Get model config for the generator network."""
   gen_config = modeling.BertConfig.from_dict(bert_config.to_dict())
@@ -174,7 +174,7 @@ def get_generator_config(config: configure_wordnet_pretraining.PretrainingConfig
   return gen_config
 
 
-def model_fn_builder(config: configure_wordnet_pretraining.PretrainingConfig):
+def model_fn_builder(config: configure_pretraining.PretrainingConfig):
   """Build the model for training."""
 
   def model_fn(features, labels, mode, params):
@@ -215,7 +215,7 @@ def model_fn_builder(config: configure_wordnet_pretraining.PretrainingConfig):
 
   return model_fn
 
-def train_or_eval(config: configure_wordnet_pretraining.PretrainingConfig, _random):
+def train_or_eval(config: configure_pretraining.PretrainingConfig, _random):
   """Run pre-training or evaluate the pre-trained model."""
   if config.do_train == config.do_eval:
     raise ValueError("Exactly one of `do_train` or `do_eval` must be True.")
@@ -252,12 +252,12 @@ def train_or_eval(config: configure_wordnet_pretraining.PretrainingConfig, _rand
     if _random:
 	    print("import random")
 	    estimator.train(
-			 input_fn=wordnet_pretrain_data.get_input_fn(config, True, filename='random'),
+			 input_fn=pretrain_data.get_input_fn(config, True, filename='random'),
                     max_steps=config.num_train_steps)
     else:
 	    print("import wordnet")
 	    estimator.train(
-			 input_fn=wordnet_pretrain_data.get_input_fn(config, True, filename='wordnet'),
+			 input_fn=pretrain_data.get_input_fn(config, True, filename='wordnet'),
                     max_steps=config.num_train_steps)
 
 
@@ -265,20 +265,20 @@ def train_or_eval(config: configure_wordnet_pretraining.PretrainingConfig, _rand
     utils.heading("Running evaluation")
     if _random:
       result = estimator.evaluate(
-        input_fn=wordnet_pretrain_data.get_input_fn(config, False, filename='random'),
+        input_fn=pretrain_data.get_input_fn(config, False, filename='random'),
         steps=config.num_eval_steps)
     else:
       result = estimator.evaluate(
-        input_fn=wordnet_pretrain_data.get_input_fn(config, False, filename='wordnet'),
+        input_fn=pretrain_data.get_input_fn(config, False, filename='wordnet'),
         steps=config.num_eval_steps)
     for key in sorted(result.keys()):
       utils.log("  {:} = {:}".format(key, str(result[key])))
     return result
 
 
-def train_one_step(config: configure_wordnet_pretraining.PretrainingConfig):
+def train_one_step(config: configure_pretraining.PretrainingConfig):
   """Builds an ELECTRA model an trains it for one step; useful for debugging."""
-  train_input_fn = wordnet_pretrain_data.get_input_fn(config, True, filename="wordnet")
+  train_input_fn = pretrain_data.get_input_fn(config, True, filename="wordnet")
   features = tf.data.make_one_shot_iterator(train_input_fn(dict(
       batch_size=config.train_batch_size))).get_next()
  
@@ -303,9 +303,9 @@ def main():
   else:
     hparams = json.loads(args.hparams)
   tf.logging.set_verbosity(tf.logging.ERROR)
-  train_or_eval(configure_wordnet_pretraining.PretrainingConfig(
+  train_or_eval(configure_pretraining.PretrainingConfig(
       args.model_name, args.data_dir, **hparams), args.random)
-#  train_one_step(configure_wordnet_pretraining.PretrainingConfig(
+#  train_one_step(configure_pretraining.PretrainingConfig(
 #			  args.model_name, args.data_dir, **hparams))
 
 if __name__ == "__main__":
