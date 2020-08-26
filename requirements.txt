@@ -1,0 +1,9 @@
+#nsml: sjpark9503/edlab_env
+tensorflow
+tqdm
+numpy
+sklearn
+scipy
+tensorflow-gpu
+pattern3
+nltk

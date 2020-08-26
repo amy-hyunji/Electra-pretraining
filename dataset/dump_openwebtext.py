@@ -2,11 +2,11 @@ import tarfile
 import os
 from tqdm import tqdm, notebook
 
-def dump_all():
-	path = "./openwebtext/"
-	txtpath = "./owt_txt/"
-	savepath = "./owt.txt"
+path = "/Users/user/Desktop/lee/electra/dataset/openwebtext"
+txtpath = "./owt_txt/"
+savepath = "./n_owt.txt"
 
+def extract_one():
 	xzFiles = os.listdir(path)
 	with open(savepath, "w") as owt: 
 		for i in tqdm(range(len(xzFiles))):
@@ -27,19 +27,15 @@ def dump_all():
 			os.system(f"rm -rf {txtpath}")
 	
 
-def dump_sep():
-	path = "./openwebtext/"
-	txtpath = "./owt_txt/"
-
+def extract_all():
+	xzFiles = os.listdir(path)
 	if not os.path.exists(txtpath):
 		os.mkdir(txtpath)
-
-	xzFiles = os.listdir(path)
 	for i in tqdm(range(len(xzFiles))):
 		xzfile = xzFiles[i]
 		with tarfile.open(os.path.join(path, xzfile)) as f:
 			f.extractall(txtpath)
 
 
-if __name__=="__main__":
-	dump_sep()
+if __name__ == "__main__":
+	extract_all()

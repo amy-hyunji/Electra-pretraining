@@ -1,15 +1,3 @@
-import argparse
-import multiprocessing
-import os
-import random
-import tarfile
-import time
-import tensorflow.compat.v1 as tf
-import sys
-
-import build_pretraining_dataset
-from util import utils, gen
-
 def write_examples(job_id, args):
 	if args.random:
 		job_tmp_dir = os.path.join(args.data_dir, f"random{args.epoch}", "job_"+str(job_id))
@@ -94,4 +82,21 @@ def main():
 			job.join()
 
 if __name__ == "__main__":
+	import os
+	os.system("cp ./tree.py /opt/conda/lib/python3.7/site-packages/pattern3/text/tree.py")
+	print("##### Done copying tree.py ######")
+	os.system("cat /opt/conda/lib/python3.7/site-packages/pattern3/text/tree.py")
+	
+	import argparse
+	import multiprocessing
+	import random
+	import tarfile
+	import time
+	import tensorflow.compat.v1 as tf
+	import sys
+
+	import build_pretraining_dataset
+	from util import utils, gen
+
 	main()
+

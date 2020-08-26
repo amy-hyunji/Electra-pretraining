@@ -1,3 +1,6 @@
+import os
+#os.system("cp tree.py /opt/conda/lib/python3.7/site-packages/pattern3/text/tree.py")
+
 from pattern3.en import*
 import nltk
 import argparse
