@@ -78,7 +78,7 @@ def main():
 	args = parser.parse_args()
 
 	if args.random:
-		utils.rmkdir(os.path.join(args.data_dir, "random_tfrecords"))
+		utils.rmkdir(os.path.join(args.data_dir, "random{args.epoch}_tfrecords"))
 	else:
 		utils.rmkdir(os.path.join(args.data_dir, f"wordnet{args.epoch}_tfrecords"))
 
