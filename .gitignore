@@ -1,2 +1,4 @@
-dataset/*
+dataset/models/ 
+dataset/openwebtext*
+dataset/wordnet*
 *.tar.gz
