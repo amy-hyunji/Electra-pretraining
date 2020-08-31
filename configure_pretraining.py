@@ -62,20 +62,7 @@ class PretrainingConfig(object):
     self.do_lower_case = True  # lowercase the input?
 
     # generator settings
-    """
-    self.uniform_generator = False  # generator is uniform at random
-    self.untied_generator_embeddings = False  # tie generator/discriminator
-                                              # token embeddings?
-    """
     self.untied_generator = False # tie all generator/discriminator weights?
-    """
-	 self.generator_layers = 1.0  # frac of discriminator layers for generator
-    self.generator_hidden_size = 0.25  # frac of discrim hidden size for gen
-    self.disallow_correct = False  # force the generator to sample incorrect
-                                   # tokens (so 15% of tokens are always
-                                   # fake)
-    self.temperature = 1.0  # temperature for sampling from generator
-    """
 
     # batch sizes
     self.max_seq_length = 128
@@ -92,13 +79,13 @@ class PretrainingConfig(object):
 
     # default locations of data files
     self.wordnet_tfrecords= os.path.join(
-			 data_dir, "wordnet*_tfrecords/pretrain_data.tfrecord*")
+			 data_dir, "wordnet1_tfrecords/pretrain_data.tfrecord*")
     self.random_tfrecords = os.path.join(
 			 data_dir, "random*_tfrecords/pretrain_data.tfrecord*")
     self.pretrain_tfrecords = os.path.join(
         data_dir, "pretrain_tfrecords/pretrain_data.tfrecord*")
-    self.vocab_file = os.path.join(data_dir, "vocab.txt")
-    self.model_dir = os.path.join(data_dir, "models", model_name)
+    self.vocab_file = os.path.join("./dataset", "vocab.txt")
+    self.model_dir = os.path.join("./dataset", "models", model_name)
     results_dir = os.path.join(self.model_dir, "results")
     self.results_txt = os.path.join(results_dir, "unsup_results.txt")
     self.results_pkl = os.path.join(results_dir, "unsup_results.pkl")

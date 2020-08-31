@@ -12,9 +12,9 @@ from util import utils, gen
 
 def write_examples(job_id, fnames, owt_dir, args):
 	if args.random:
-		job_tmp_dir = os.path.join(args.data_dir, f"random{args.epoch}", "job_"+str(job_id))
+		job_tmp_dir = os.path.join("./dataset/", f"random{args.epoch}", "job_"+str(job_id))
 	else:
-		job_tmp_dir = os.path.join(args.data_dir, f"wordnet{args.epoch}", "job_"+str(job_id))
+		job_tmp_dir = os.path.join("./dataset/", f"wordnet{args.epoch}", "job_"+str(job_id))
 
 	def log(*args):
 		msg = " ".join(map(str, args))
@@ -25,8 +25,8 @@ def write_examples(job_id, fnames, owt_dir, args):
 	log("Creating example writer")
 	example_writer = build_pretraining_dataset.ExampleWriter(
 			job_id = job_id,
-			vocab_file = os.path.join(args.data_dir, "vocab.txt"),
-			output_dir = os.path.join(args.data_dir, f"random{args.epoch}_tfrecords") if args.random else os.path.join(args.data_dir, f"wordnet{args.epoch}_tfrecords"),
+			vocab_file = os.path.join("./dataset/", "vocab.txt"),
+			output_dir = os.path.join("./dataset/", f"random{args.epoch}_tfrecords") if args.random else os.path.join("./dataset/", f"wordnet{args.epoch}_tfrecords"),
 			max_seq_length = args.max_seq_length,
 			num_jobs = args.num_processes,
 			blanks_separate_docs = False,
@@ -63,7 +63,7 @@ def main():
 	parser.set_defaults(do_lower_case=True)
 	args = parser.parse_args()
 
-	utils.rmkdir(os.path.join(args.data_dir, f"wordnet{args.epoch}_tfrecords"))
+	utils.rmkdir(os.path.join("./dataset/", f"wordnet{args.epoch}_tfrecords"))
 	owt_dir = os.path.join(args.data_dir, "openwebtext")
 
 	print("Writing tf examples")

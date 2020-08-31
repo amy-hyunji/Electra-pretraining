@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import sys
 
 import numpy as np
 import tensorflow.compat.v1 as tf
@@ -87,7 +88,6 @@ def get_input_fn(config: configure_pretraining.PretrainingConfig, is_training,
 def _decode_record(record, name_to_features):
   """Decodes a record to a TensorFlow example."""
   example = tf.io.parse_single_example(record, name_to_features)
-#print(example)
 
   # tf.Example only supports tf.int64, but the TPU only supports tf.int32.
   # So cast all int64 to int32.
@@ -108,6 +108,11 @@ Inputs = collections.namedtuple(
 
 
 def features_to_inputs(features):
+  with tf.Session() as sess:
+     print("label: ", sess.run(features['label']))
+     print("input_ids: ", sess.run(features['input_ids'])) 
+     print("input_mask: ", sess.run(features['input_mask']))
+  sys.exit()
   return Inputs(
       input_ids=features["input_ids"],
       input_mask=features["input_mask"],
